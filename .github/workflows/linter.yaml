@@ -1,0 +1,28 @@
+name: Linter
+
+on:
+  pull_request:
+    branches: [develop, master]
+  push:
+    branches: [master]
+
+jobs:
+  linter-clippy:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-22.04]
+        version: [1.78]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.version }}
+          components: clippy
+
+      - name: Install Clippy
+        run: rustup component add clippy
+
+      - name: Run the Clippy
+        run: cargo clippy -- --D warnings
