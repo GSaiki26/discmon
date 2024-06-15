@@ -4,18 +4,18 @@ use crate::{
         cache::{Cache, CacheError, RedisCache},
         http_client::{HTTPClient, HTTPClientError, ReqwestHTTPClient},
     },
-    serializations::pokemon::{
-        CachedPokemon, PokeAPIPokemon, PokeAPIPokemonEvolutionChain, PokeAPIPokemonSpecies,
-        PokeAPIPokemonSpeciesCount,
+    serializations::{
+        cache::CachedPokemon,
+        pokeapi::{
+            PokeAPIPokemon, PokeAPIPokemonEvolutionChain, PokeAPIPokemonSpecies,
+            PokeAPIPokemonSpeciesCount,
+        },
     },
 };
 use once_cell::sync::Lazy;
 use std::{process::exit, sync::Arc};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{error, info};
-
-// Type
-pub type PokeAPIResult<T> = Result<T, PokeAPIError>;
+use tracing::{error, info, Instrument};
 
 // Data
 pub const POKEAPI_URL: Lazy<String> = Lazy::new(|| std::env::var("POKEAPI_URL").unwrap());
@@ -27,10 +27,12 @@ pub const POKEAPI_SERVICE: Lazy<Arc<PokeAPI<RedisCache, ReqwestHTTPClient>>> = L
         exit(1);
     };
 
-    Arc::new(PokeAPI::new(
+    let pokeapi = PokeAPI::new(
         Arc::new(Mutex::new(redis_instance.unwrap())),
         Arc::new(RwLock::new(reqwest_instance)),
-    ))
+    );
+
+    Arc::new(pokeapi)
 });
 
 // PokeAPIError
@@ -101,6 +103,14 @@ where
     }
 
     /**
+    A method to connect to the cache.
+    */
+    pub async fn connect_to_cache(&self) -> Result<(), PokeAPIError> {
+        self.cache.lock().await.connect().await?;
+        Ok(())
+    }
+
+    /**
     A method to find some pokemon by their identifiers.
 
     ## Parameters:
@@ -108,7 +118,11 @@ where
     */
     pub async fn find_poke(&self, identifier: &str) -> Result<CachedPokemon, PokeAPIError> {
         // Check if the pokemon is in the cache.
-        let cache = self.cache.lock().await;
+        let mut cache = self.cache.lock().await;
+        if !cache.is_connected() {
+            cache.connect().in_current_span().await?;
+        }
+
         info!(
             "[POKEAPI] Checking if the pokemon#[{}] is in the cache...",
             identifier
@@ -146,7 +160,12 @@ where
     pub async fn get_pokemons_count(&self) -> Result<u16, PokeAPIError> {
         info!("[PokeAPI] Getting the amount of pokemons in the PokeAPI...");
         info!("[PokeAPI] Checking if the amount of pokemons is in the cache...");
-        let a = self.cache.lock().await.get_key("pokemons_count").await?;
+        let mut cache = self.cache.lock().await;
+        if !cache.is_connected() {
+            cache.connect().in_current_span().await?;
+        }
+
+        let a = cache.get_key("pokemons_count").await?;
         if let Some(a) = a {
             info!("[PokeAPI] The amount of pokemons is in the cache.");
             return Ok(a.parse().unwrap());
@@ -160,9 +179,7 @@ where
             self.http_client.read().await.access("GET", &url).await?;
 
         info!("[PokeAPI] Inserting the amount of pokemons in the cache...");
-        self.cache
-            .lock()
-            .await
+        cache
             .insert_key("pokemons_count", &count.count.to_string())
             .await?;
 

@@ -1,1 +1,3 @@
-pub mod pokemon;
+pub mod cache;
+pub mod database;
+pub mod pokeapi;

@@ -8,6 +8,7 @@ name = "app"
 path = "./src/main.rs"
 
 [features]
+default = ["dev_commands"]
 dev_commands = []
 
 [dependencies]
@@ -29,6 +30,7 @@ serenity = { version = "0.12.2", default-features = false, features = [
   "gateway",
   "model",
   "rustls_backend",
+  "utils",
 ] }
 surrealdb = { version = "1.5.2", default-features = false }
 tokio = { version = "1.38.0", default-features = false, features = [

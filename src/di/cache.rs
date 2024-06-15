@@ -39,6 +39,11 @@ pub trait Cache {
     async fn connect(&mut self) -> Result<(), CacheError>;
 
     /**
+    A method to check if the cache is connected.
+    */
+    fn is_connected(&self) -> bool;
+
+    /**
     A method to get the key's value from the cache.
 
     ## Parameters:
@@ -93,13 +98,23 @@ impl Cache for RedisCache {
         Ok(())
     }
 
+    fn is_connected(&self) -> bool {
+        self.conn.is_some()
+    }
+
     async fn get_key(&self, key: &str) -> Result<Option<String>, CacheError> {
-        let mut conn = self.conn.clone().unwrap();
+        let mut conn = match self.conn.clone() {
+            Some(conn) => conn,
+            None => return Err("No connection to the Redis server.".into()),
+        };
         Ok(redis::cmd("GET").arg(key).query_async(&mut conn).await?)
     }
 
     async fn insert_key(&self, key: &str, value: &str) -> Result<(), CacheError> {
-        let mut conn = self.conn.clone().unwrap();
+        let mut conn = match self.conn.clone() {
+            Some(conn) => conn,
+            None => return Err("No connection to the Redis server.".into()),
+        };
         Ok(redis::cmd("SET")
             .arg(key)
             .arg(value)

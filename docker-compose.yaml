@@ -1,0 +1,20 @@
+
+
+services:
+  # discmon_server:
+  #   container_name: discmon_server
+  #   build: .
+  #   env_file: [app.env]
+  #   depends_on: [discmon_redis]
+  #   links: [discmon_redis]
+
+  discmon_redis:
+    container_name: discmon_redis
+    image: redis:7.2.5-alpine
+    ports: [6379:6379/tcp]
+
+  discmon_surreal:
+    container_name: discmon_surreal
+    image: surrealdb/surrealdb:latest
+    command: start
+    ports: [8000:8000/tcp]
