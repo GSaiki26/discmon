@@ -3,14 +3,35 @@ name = "discmon"
 version = "1.0.0"
 edition = "2021"
 
+[[bin]]
+name = "app"
+path = "./src/main.rs"
+
+[features]
+default = ["dev_commands"]
+dev_commands = []
+
 [dependencies]
-redis = { version = "0.25.4", default-features = false, features = [
+async-trait = { version = "0.1.80", default-features = false }
+once_cell = { version = "1.19.0", default-features = false }
+rand = { version = "0.8.5", default-features = false }
+redis = { version = "0.25.4", default-features = true, features = [
   "json",
-  "keep-alive",
+  "tokio-rustls-comp",
 ] }
-reqwest = { version = "0.12.4", default-features = true, features = ["json"] }
+reqwest = { version = "0.12.4", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
 serde = { version = "1.0.203", default-features = false, features = ["derive"] }
-serenity = { version = "0.12.2", default-features = true, features = ["model"] }
+serde_json = { version = "1.0.117", default-features = false }
+serenity = { version = "0.12.2", default-features = false, features = [
+  "client",
+  "gateway",
+  "model",
+  "rustls_backend",
+  "utils",
+] }
 surrealdb = { version = "1.5.2", default-features = false }
 tokio = { version = "1.38.0", default-features = false, features = [
   "macros",
@@ -22,3 +43,7 @@ tracing-subscriber = { version = "0.3.18", default-features = false, features = 
   "env-filter",
   "fmt",
 ] }
+
+[dev-dependencies]
+faux = { version = "0.1.10", default-features = false }
+mockall = { version = "0.12.1", default-features = false }

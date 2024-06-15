@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 // Pokemon
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIPokemon {
     pub height: u16,
     pub id: u16,
@@ -15,35 +15,48 @@ pub struct PokeAPIPokemon {
     pub weight: u16,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIType {
-    pub slot: u16,
+    pub slot: u8,
     pub r#type: PokeAPIResource,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIStat {
     pub base_stat: u16,
     pub effort: u16,
     pub stat: PokeAPIResource,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPISprites {
     pub front_default: String,
     pub front_female: Option<()>,
     pub front_shiny: String,
     pub front_shiny_female: Option<()>,
+    pub other: PokeAPISpritesOther,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct PokeAPISpritesOther {
+    #[serde(rename = "official-artwork")]
+    pub official_artwork: PokeAPISpritesOtherOfficialArtwork,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct PokeAPISpritesOtherOfficialArtwork {
+    pub front_default: String,
+    pub front_shiny: String,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIResource {
     pub name: String,
     pub url: String,
 }
 
 // Pokemon Species
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIPokemonSpecies {
     pub evolution_chain: PokeAPIEvolutionchain,
     pub evolves_from_species: Option<PokeAPIResource>,
@@ -56,18 +69,23 @@ pub struct PokeAPIPokemonSpecies {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIEvolutionchain {
     pub url: String,
 }
 
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct PokeAPIPokemonSpeciesCount {
+    pub count: u16,
+}
+
 // Pokemon Evolution Chain
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIPokemonEvolutionChain {
     pub chain: PokeAPIChain,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PokeAPIChain {
     pub evolves_to: Vec<PokeAPIChain>,
     pub species: PokeAPIResource,
