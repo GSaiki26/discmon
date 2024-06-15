@@ -1,5 +1,4 @@
 // Libs
-use super::poke_spawn::PokeSpawnHandler;
 use async_trait::async_trait;
 use serenity::{
     model::channel::Message,
@@ -8,8 +7,10 @@ use serenity::{
 use std::sync::Arc;
 use tracing::error;
 
+use super::poke_spawn::PokeSpawnHandler;
+
 #[cfg(feature = "dev_commands")]
-use super::dev_commands::spawn_random_pokemon;
+use super::dev_commands::DevCommandsHandler;
 
 // Message Handler
 pub struct MessageHandler;
@@ -18,6 +19,10 @@ pub struct MessageHandler;
 impl EventHandler for MessageHandler {
     /**
     A method to handle messages. Here the bot will generate a chance for spawning a pokemon.
+
+    ## Parameters:
+    - `ctx`: A `Context` type. The context of the event.
+    - `msg`: A `Message` type. The message that triggered the event.
     */
     async fn message(&self, ctx: Context, msg: Message) {
         // Ignore messages from bots
@@ -34,25 +39,21 @@ impl EventHandler for MessageHandler {
         );
         let _guard = span.enter();
 
+        // Check if the message is a command. It'll only be available if the feature is enabled.
         #[cfg(feature = "dev_commands")]
         {
-            // Check if the message is a command.
             if msg.content.starts_with("!dev") {
-                match msg.content.as_str() {
-                    "!dev spawn_random" => {
-                        if let Err(e) = spawn_random_pokemon(ctx.clone(), msg.clone()).await {
-                            error!("Error spawning random pokemon: {:?}", e);
-                        }
-                    }
-                    _ => return,
+                let dev_handler = DevCommandsHandler::new(ctx, msg.channel_id);
+                if let Err(e) = dev_handler.handle(msg).await {
+                    error!("Error handling dev command: {:?}", e);
                 }
+                return;
             }
         }
 
-        if let Err(e) = PokeSpawnHandler::new(ctx.clone(), msg.channel_id)
-            .handle()
-            .await
-        {
+        // Pass the handle responsibility to the PokeSpawnHandler.
+        let pokespawn_handler = PokeSpawnHandler::build(ctx.clone(), msg.channel_id).build();
+        if let Err(e) = pokespawn_handler.handle().await {
             error!("Error handling message: {:?}", e);
         }
     }

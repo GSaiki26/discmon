@@ -1,32 +1,8 @@
 // Libs
 use async_trait::async_trait;
-use redis::{aio::MultiplexedConnection, RedisError};
-use tracing::info;
+use redis::aio::MultiplexedConnection;
 
-// Cache Error
-#[derive(Debug)]
-pub enum CacheError {
-    RedisError(RedisError),
-    Other(String),
-}
-
-impl From<RedisError> for CacheError {
-    fn from(error: RedisError) -> Self {
-        CacheError::RedisError(error)
-    }
-}
-
-impl From<String> for CacheError {
-    fn from(error: String) -> Self {
-        CacheError::Other(error)
-    }
-}
-
-impl From<&str> for CacheError {
-    fn from(error: &str) -> Self {
-        CacheError::Other(error.to_string())
-    }
-}
+use crate::errors::CacheResult;
 
 // Cache Trait.
 #[async_trait]
@@ -36,7 +12,7 @@ pub trait Cache {
     /**
     A method to connect to the cache server.
     */
-    async fn connect(&mut self) -> Result<(), CacheError>;
+    async fn connect(&mut self) -> CacheResult<()>;
 
     /**
     A method to check if the cache is connected.
@@ -49,7 +25,7 @@ pub trait Cache {
     ## Parameters:
     - `key`: The key to get the value.
     */
-    async fn get_key(&self, key: &str) -> Result<Option<String>, CacheError>;
+    async fn get_key(&self, key: &str) -> CacheResult<Option<String>>;
 
     /**
     A method to insert a key value pair in the cache.
@@ -58,7 +34,7 @@ pub trait Cache {
     - `key`: The key to insert.
     - `value`: The value to insert.
     */
-    async fn insert_key(&self, key: &str, value: &str) -> Result<(), CacheError>;
+    async fn insert_key(&self, key: &str, value: &str) -> CacheResult<()>;
 }
 
 // Redis Cache
@@ -71,7 +47,7 @@ impl RedisCache {
     /**
     A method to create a new instance of the RedisCache.
     */
-    pub fn new() -> Result<Self, CacheError> {
+    pub fn new() -> CacheResult<Self> {
         let redis_url = format!(
             "redis://@{}:{}",
             std::env::var("REDIS_HOST").unwrap(),
@@ -91,10 +67,8 @@ impl RedisCache {
 impl Cache for RedisCache {
     type Connection = MultiplexedConnection;
 
-    async fn connect(&mut self) -> Result<(), CacheError> {
-        info!("[CACHE] Connecting to the Redis server...");
+    async fn connect(&mut self) -> CacheResult<()> {
         self.conn = Some(self.client.get_multiplexed_tokio_connection().await?);
-        info!("[CACHE] Connected to the Redis server.");
         Ok(())
     }
 
@@ -102,7 +76,7 @@ impl Cache for RedisCache {
         self.conn.is_some()
     }
 
-    async fn get_key(&self, key: &str) -> Result<Option<String>, CacheError> {
+    async fn get_key(&self, key: &str) -> CacheResult<Option<String>> {
         let mut conn = match self.conn.clone() {
             Some(conn) => conn,
             None => return Err("No connection to the Redis server.".into()),
@@ -110,7 +84,7 @@ impl Cache for RedisCache {
         Ok(redis::cmd("GET").arg(key).query_async(&mut conn).await?)
     }
 
-    async fn insert_key(&self, key: &str, value: &str) -> Result<(), CacheError> {
+    async fn insert_key(&self, key: &str, value: &str) -> CacheResult<()> {
         let mut conn = match self.conn.clone() {
             Some(conn) => conn,
             None => return Err("No connection to the Redis server.".into()),
@@ -122,54 +96,3 @@ impl Cache for RedisCache {
             .await?)
     }
 }
-
-// #[cfg(test)]
-// pub mod tests {
-//     use super::*;
-//     use mockall::mock;
-//     // use std::sync::Arc;
-//     // use tokio::sync::Mutex;
-
-//     mock! {
-//         pub Cache {}
-//         #[async_trait]
-//         impl Cache for Cache {
-//             type Connection = ();
-//             async fn connect(&mut self) -> Result<(), CacheError>;
-//             async fn get_key(&self, key: &str) -> Result<Option<String>, CacheError>;
-//             async fn insert_key(&self, key: &str, value: &str) -> Result<(), CacheError>;
-//         }
-//     }
-
-// #[derive(Default)]
-// pub struct CacheMock {
-//     pub connect_calls: Arc<Mutex<Vec<()>>>,
-//     pub get_key_calls: Arc<Mutex<Vec<String>>>,
-//     pub insert_key_calls: Arc<Mutex<Vec<(String, String)>>>,
-
-//     pub get_key_return: Option<String>,
-// }
-
-// #[async_trait]
-// impl Cache for CacheMock {
-//     type Connection = ();
-
-//     async fn connect(&mut self) -> Result<(), CacheError> {
-//         self.connect_calls.lock().await.push(());
-//         Ok(())
-//     }
-
-//     async fn get_key(&self, _key: &str) -> Result<Option<String>, CacheError> {
-//         self.get_key_calls.lock().await.push(_key.to_string());
-//         Ok(self.get_key_return.clone())
-//     }
-
-//     async fn insert_key(&self, _key: &str, _value: &str) -> Result<(), CacheError> {
-//         self.insert_key_calls
-//             .lock()
-//             .await
-//             .push((_key.to_string(), _value.to_string()));
-//         Ok(())
-//     }
-// }
-// }

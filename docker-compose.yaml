@@ -13,8 +13,7 @@ services:
     image: redis:7.2.5-alpine
     ports: [6379:6379/tcp]
 
-  discmon_surreal:
-    container_name: discmon_surreal
-    image: surrealdb/surrealdb:latest
-    command: start
-    ports: [8000:8000/tcp]
+  discmon_db:
+    container_name: discmon_db
+    image: mongo:latest
+    ports: [27017:27017]

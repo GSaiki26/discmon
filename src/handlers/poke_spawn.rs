@@ -1,80 +1,88 @@
 // Libs
-use super::error::HandlerError;
+use rand::Rng;
+use serenity::{
+    all::{parse_emoji, ChannelId, Context, EmojiIdentifier, Mentionable, User},
+    model::channel::Message,
+};
+use std::{env::var, sync::Arc};
+use tracing::{info, Instrument};
+
+use crate::services::POKEAPI_SERVICE;
+use crate::{errors::HandlerError, serializations::handlers::SpawnedPokemon};
 use crate::{
     messages::{
         get_msg_wild_pokemon_appeared, get_msg_wild_pokemon_caught, get_msg_wild_pokemon_fled,
     },
     serializations::cache::CachedPokemon,
-    services::pokeapi::POKEAPI_SERVICE,
 };
-use once_cell::sync::Lazy;
-use rand::Rng;
-use serenity::{
-    all::{parse_emoji, ChannelId, Context, User},
-    model::channel::Message,
-};
-use std::sync::Arc;
-use tracing::{info, Instrument};
-
-// Data
-const BOT_POKEBALL_EMOJI_ID: Lazy<String> = Lazy::new(|| {
-    std::env::var("BOT_POKEBALL_EMOJI_ID")
-        .unwrap()
-        .parse()
-        .unwrap()
-});
-const BOT_POKE_SPAWN_RATE: Lazy<u16> = Lazy::new(|| {
-    std::env::var("BOT_POKE_SPAWN_RATE")
-        .unwrap()
-        .parse::<u16>()
-        .unwrap()
-});
-const BOT_POKE_FLEE_TIME_SECS: Lazy<u16> = Lazy::new(|| {
-    std::env::var("BOT_POKE_FLEE_TIME_SECS")
-        .unwrap()
-        .parse::<u16>()
-        .unwrap()
-});
 
 // Gen Poke Handler
 pub struct PokeSpawnHandler {
     ctx: Arc<Context>,
     channel_id: ChannelId,
+
+    bot_pokeball_emoji: EmojiIdentifier,
+    bot_poke_spawn_rate: u64,
+    bot_poke_flee_time_secs: u64,
+    bot_poke_shiny_rate: u64,
 }
 
 impl PokeSpawnHandler {
     /**
-    A method to create a new PokeSpawnHandler.
+    A method to build a new PokeSpawnHandler.
     */
-    pub fn new(ctx: Arc<Context>, channel_id: ChannelId) -> Self {
-        PokeSpawnHandler { ctx, channel_id }
+    pub fn build(ctx: Arc<Context>, channel_id: ChannelId) -> PokeSpawnHandlerBuilder {
+        PokeSpawnHandlerBuilder::new(ctx, channel_id)
     }
 
     /**
-    A method to handle the generation of a pokemon.
+    A method to handle the generation of a pokemon. If the chance was not met, return.
+
+    Its possible to pass a custom chance to the method, being 1 to X, where X is the chance of the pokemon to be spawned.
     */
     pub async fn handle(&self) -> Result<(), HandlerError> {
-        // Try to generate a pokemon. If the chance was not met, return.
-        if !will_poke_spawn() {
+        // Check the chance of the pokemon to be spawned.
+        info!(
+            "[PokeSpawnHandler] Checking the chance 1 to {} of a pokemon to be spawned...",
+            self.bot_poke_spawn_rate
+        );
+        let chance = rand::thread_rng().gen_range(0..self.bot_poke_spawn_rate);
+        if chance != 0 {
+            info!("A pokemon will not be spawned.");
             return Ok(());
         }
 
-        // Generate the Send the message to the channel.
-        let (poke, poke_msg) = self.gen_and_send_poke().in_current_span().await?;
+        // Spawn a new pokemon and send it to the channel.
+        info!("[PokeSpawnHandler] The chance was met! Spawning a new pokemon...");
+        let spawned_poke = self.gen_poke().in_current_span().await?;
+        let cached_poke = POKEAPI_SERVICE
+            .clone()
+            .find_poke(&spawned_poke.id.to_string())
+            .in_current_span()
+            .await?;
+        let poke_msg = self
+            .send_poke_message(&spawned_poke, &cached_poke)
+            .in_current_span()
+            .await?;
 
         // Start the capture of the pokemon.
         let new_trainer = self.start_capture(poke_msg).in_current_span().await?;
         if new_trainer.is_none() {
-            info!("The pokemon has fled!");
-            let message = get_msg_wild_pokemon_fled(&poke);
+            info!("[PokeSpawnHandler] The pokemon has fled!");
+            let message = get_msg_wild_pokemon_fled(spawned_poke.is_shiny, &cached_poke.name);
             self.channel_id
                 .send_message(&self.ctx.http, message)
                 .await?;
             return Ok(());
         }
+        let new_trainer = new_trainer.unwrap();
 
         // Save the pokemon to the trainer's pokedex.
-        let message = get_msg_wild_pokemon_caught(&poke, new_trainer.unwrap());
+        let message = get_msg_wild_pokemon_caught(
+            spawned_poke.is_shiny,
+            &cached_poke.name,
+            new_trainer.mention(),
+        );
         self.channel_id
             .send_message(&self.ctx.http, message)
             .await?;
@@ -84,52 +92,75 @@ impl PokeSpawnHandler {
     }
 
     /**
-    A method to try to generate a new pokemon.
+    A method to generate a pokemon.
 
     ## Returns:
-    - A message with the pokemon.
+    - A `SpawnedPokemon` type. The generated pokemon.
     */
-    pub async fn gen_and_send_poke(&self) -> Result<(CachedPokemon, Message), HandlerError> {
-        // Generate a pokemon and send the message to the channel.
+    pub async fn gen_poke(&self) -> Result<SpawnedPokemon, HandlerError> {
+        info!("[PokeSpawnHandler] Generating a new pokemon...");
         let poke_svc = POKEAPI_SERVICE.clone();
         let poke_amount = poke_svc.get_pokemons_count().in_current_span().await?;
-        let poke_id = rand::thread_rng().gen_range(1..=poke_amount).to_string();
-        let poke = poke_svc.find_poke(&poke_id).in_current_span().await?;
+        let poke_id = rand::thread_rng().gen_range(1..=poke_amount);
+        let is_shiny = rand::thread_rng().gen_range(0..self.bot_poke_shiny_rate) == 0;
 
-        let message = get_msg_wild_pokemon_appeared(&poke);
+        info!(
+            "[PokeSpawnHandler] The pokemon #{} has been generated!",
+            poke_id
+        );
+        Ok(SpawnedPokemon::new(poke_id, is_shiny))
+    }
+
+    /**
+    A method to send the pokemon to the channel.
+
+    ## Parameters:
+    - `poke`: The pokemon to be sent.
+    */
+    pub async fn send_poke_message(
+        &self,
+        spawned_poke: &SpawnedPokemon,
+        cached_poke: &CachedPokemon,
+    ) -> Result<Message, HandlerError> {
+        info!("[PokeSpawnHandler] Sending the pokemon to the channel...");
+        let message = get_msg_wild_pokemon_appeared(spawned_poke.is_shiny, cached_poke);
         let poke_message = self
             .channel_id
             .send_message(&self.ctx.http, message)
             .in_current_span()
             .await?;
 
-        // React to the message with the pokeball.
-        let emoji = parse_emoji(&BOT_POKEBALL_EMOJI_ID.to_string()).unwrap();
-        poke_message.react(&self.ctx.http, emoji).await?;
+        info!("[PokeSpawnHandler] Reacting to the message with the pokeball emoji...");
+        poke_message
+            .react(&self.ctx.http, self.bot_pokeball_emoji.clone())
+            .await?;
 
-        info!("A pokemon has spawned!");
-        Ok((poke, poke_message))
+        info!("[PokeSpawnHandler] The pokemon has been sent to the channel!");
+        Ok(poke_message)
     }
 
     /**
     A method to start the capture of a pokemon.
     */
     pub async fn start_capture(&self, poke_msg: Message) -> Result<Option<User>, HandlerError> {
-        // Start a instant capture of the pokemon.
+        info!("[PokeSpawnHandler] Starting the capture event of the pokemon...");
         let start_instant = std::time::Instant::now();
 
-        // Check each second if the pokemon has fled.
-        while start_instant.elapsed().as_secs() < *BOT_POKE_FLEE_TIME_SECS as u64 {
+        while start_instant.elapsed().as_secs() < self.bot_poke_flee_time_secs as u64 {
             // Check the reactions of the message.
-            info!("Checking the reactions of the message...");
-            let emoji = parse_emoji(&BOT_POKEBALL_EMOJI_ID.to_string()).unwrap();
+            info!("[PokeSpawnHandler] Checking the reactions of the message...");
             let users_that_reacted = &poke_msg
-                .reaction_users(&self.ctx.http, emoji, Some(2), None)
+                .reaction_users(
+                    &self.ctx.http,
+                    self.bot_pokeball_emoji.clone(),
+                    Some(2),
+                    None,
+                )
                 .await?;
 
             // If someone reacted to the message, return.
             if users_that_reacted.len() > 1 {
-                info!("The pokemon has been captured!");
+                info!("[PokeSpawnHandler] The pokemon has been captured!");
                 return Ok(Some(
                     users_that_reacted[users_that_reacted.len() - 2].clone(),
                 ));
@@ -138,25 +169,112 @@ impl PokeSpawnHandler {
             // Wait for a second.
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
+
+        info!("[PokeSpawnHandler] The pokemon has fled!");
         Ok(None)
     }
 }
 
-// Functions
-/**
-A method to to check the chance of a pokemon to be spawned.
-*/
-fn will_poke_spawn() -> bool {
-    info!("Checking the chance of a pokemon to be spawned...");
-    let chance = rand::thread_rng().gen_range(0..*BOT_POKE_SPAWN_RATE);
-    match chance {
-        0 => {
-            info!("A pokemon will be spawned!");
-            true
+// Builder
+#[derive(Debug)]
+pub struct PokeSpawnHandlerBuilder {
+    ctx: Arc<Context>,
+    channel_id: ChannelId,
+
+    bot_pokeball_emoji: Option<EmojiIdentifier>,
+    bot_poke_spawn_rate: Option<u64>,
+    bot_poke_flee_time_secs: Option<u64>,
+    bot_poke_shiny_rate: Option<u64>,
+}
+
+impl PokeSpawnHandlerBuilder {
+    /**
+    A method to create a new PokeSpawnHandlerBuilder.
+    */
+    pub fn new(ctx: Arc<Context>, channel_id: ChannelId) -> Self {
+        Self {
+            ctx,
+            channel_id,
+            bot_pokeball_emoji: None,
+            bot_poke_spawn_rate: None,
+            bot_poke_flee_time_secs: None,
+            bot_poke_shiny_rate: None,
         }
-        _ => {
-            info!("A pokemon will not be spawned.");
-            false
+    }
+
+    /**
+    A method to set the bot pokeball emoji id.
+
+    ## Parameters:
+    - `bot_pokeball_emoji_id`: A `String` type. The bot pokeball emoji id.
+    */
+    pub fn with_pokeball_emoji_id(mut self, bot_pokeball_emoji_id: String) -> Self {
+        self.bot_pokeball_emoji = parse_emoji(bot_pokeball_emoji_id);
+        self
+    }
+
+    /**
+    A method to set the bot poke spawn rate.
+
+    ## Parameters:
+    - `bot_poke_spawn_rate`: A `u64` type. The bot poke spawn rate.
+    */
+    pub fn with_poke_spawn_rate(mut self, bot_poke_spawn_rate: u64) -> Self {
+        self.bot_poke_spawn_rate = Some(bot_poke_spawn_rate);
+        self
+    }
+
+    /**
+    A method to set the bot poke flee time seconds.
+
+    ## Parameters:
+    - `bot_poke_flee_time_secs`: A `u64` type. The bot poke flee time seconds.
+    */
+
+    pub fn with_poke_flee_time_secs(mut self, bot_poke_flee_time_secs: u64) -> Self {
+        self.bot_poke_flee_time_secs = Some(bot_poke_flee_time_secs);
+        self
+    }
+
+    /**
+    A method to set the bot poke shiny rate.
+
+    ## Parameters:
+    - `bot_poke_shiny_rate`: A `u64` type. The bot poke shiny rate.
+    */
+    pub fn with_poke_shiny_rate(mut self, bot_poke_shiny_rate: u64) -> Self {
+        self.bot_poke_shiny_rate = Some(bot_poke_shiny_rate);
+        self
+    }
+
+    /**
+    A method to build a new PokeSpawnHandler.
+    */
+    pub fn build(self) -> PokeSpawnHandler {
+        PokeSpawnHandler {
+            ctx: self.ctx,
+            channel_id: self.channel_id,
+            bot_pokeball_emoji: self
+                .bot_pokeball_emoji
+                .unwrap_or_else(|| parse_emoji(var("BOT_POKEBALL_EMOJI_ID").unwrap()).unwrap()),
+            bot_poke_spawn_rate: self.bot_poke_spawn_rate.unwrap_or_else(|| {
+                var("BOT_POKEBALL_EMOJI_ID")
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            }),
+            bot_poke_flee_time_secs: self.bot_poke_flee_time_secs.unwrap_or_else(|| {
+                var("BOT_POKEBALL_EMOJI_ID")
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            }),
+            bot_poke_shiny_rate: self.bot_poke_shiny_rate.unwrap_or_else(|| {
+                var("BOT_POKEBALL_EMOJI_ID")
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            }),
         }
     }
 }
