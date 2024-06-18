@@ -1,5 +1,8 @@
 // Libs
-use serenity::all::{CreateEmbed, CreateMessage, Mention};
+use serenity::all::{
+    CreateButton, CreateEmbed, CreateEmbedAuthor, CreateInteractionResponseMessage, CreateMessage,
+    Mention, User,
+};
 
 use crate::serializations::cache::CachedPokemon;
 
@@ -29,24 +32,6 @@ pub fn get_msg_wild_pokemon_appeared(is_shiny: bool, poke: &CachedPokemon) -> Cr
 }
 
 /**
-A method to get a message when a wild pokemon has fled.
-
-## Parameters:
-- `is_shiny`: A boolean to check if the pokemon is shiny.
-- `poke_name`: The name of the pokemon that has fled. The function'll uppercase it.
-*/
-pub fn get_msg_wild_pokemon_fled(is_shiny: bool, poke_name: &str) -> CreateMessage {
-    let title = match is_shiny {
-        true => format!("The wild shiny {} ✨ has fled!", poke_name.to_uppercase()),
-        false => format!("The wild {} has fled!", poke_name.to_uppercase()),
-    };
-    let embed = CreateEmbed::new()
-        .title(title)
-        .description("You were too slow to catch it!");
-    CreateMessage::new().embed(embed)
-}
-
-/**
 A method to get a message when a wild pokemon has been caught.
 
 ## Parameters:
@@ -71,8 +56,83 @@ pub fn get_msg_wild_pokemon_caught(
 }
 
 /**
+A method to get a message when a wild pokemon has fled.
+
+## Parameters:
+- `is_shiny`: A boolean to check if the pokemon is shiny.
+- `poke_name`: The name of the pokemon that has fled. The function'll uppercase it.
+*/
+pub fn get_msg_wild_pokemon_fled(is_shiny: bool, poke_name: &str) -> CreateMessage {
+    let title = match is_shiny {
+        true => format!("The wild shiny {} ✨ has fled!", poke_name.to_uppercase()),
+        false => format!("The wild {} has fled!", poke_name.to_uppercase()),
+    };
+    let embed = CreateEmbed::new()
+        .title(title)
+        .description("You were too slow to catch it!");
+    CreateMessage::new().embed(embed)
+}
+
+/**
+A method to get a message to ack the /pokedex command.
+*/
+pub fn get_msg_pokedex_ack() -> CreateInteractionResponseMessage {
+    CreateInteractionResponseMessage::new().content("Retrieving the pokedex...")
+}
+
+/**
+A method to get the empty pokedex message.
+*/
+pub fn get_msg_pokedex_empty(username: &str) -> CreateMessage {
+    CreateMessage::new().embed(
+        CreateEmbed::new()
+            .title(format!("{}'s Pokédex 📕", username))
+            .description("No pokémons found. Go catch some! 🎣"),
+    )
+}
+
+/**
+A method to create the message for the pokedex content.
+*/
+pub fn get_msg_pokedex_content(
+    user: &User,
+    total_caught: u16,
+    total_species_caught: u16,
+    total_pokes: u16,
+    current_page: u16,
+    total_pages: u16,
+    total_pokes_per_page: u16,
+    pokedex_description: &str,
+) -> CreateMessage {
+    let embed = CreateEmbed::new()
+        .title(format!("{}'s Pokédex 📕", user.name))
+        .author(CreateEmbedAuthor::from(user.clone()))
+        .field("Total caught pokémons", total_caught.to_string(), true)
+        .field(
+            "Registered pokémons",
+            format!("{}/{}", total_species_caught, total_pokes),
+            true,
+        )
+        .field(
+            format!("Current page ({} per page)", total_pokes_per_page),
+            format!("{}/{}", current_page, &total_pages),
+            true,
+        )
+        .description(pokedex_description);
+
+    let pokedex_previous = CreateButton::new("pokedex_previous").label("Previous");
+    let pokedex_next = CreateButton::new("pokedex_next").label("Next");
+
+    CreateMessage::new()
+        .add_embed(embed)
+        .button(pokedex_previous)
+        .button(pokedex_next)
+}
+
+/**
 A method to get a message when a dev command has been called.
 */
+#[cfg(feature = "dev_commands")]
 pub fn get_dev_error_msg_poke_spawn() -> CreateMessage {
     let embed = CreateEmbed::new()
 .title("❌ Error spawning a random pokemon!")

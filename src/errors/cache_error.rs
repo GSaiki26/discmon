@@ -7,7 +7,6 @@ pub type CacheResult<T> = Result<T, CacheError>;
 // Cache Error
 #[derive(Debug)]
 pub enum CacheError {
-    CacheNotConnected,
     RedisError(RedisError),
     Other(String),
 }
@@ -33,7 +32,6 @@ impl From<&str> for CacheError {
 impl std::fmt::Display for CacheError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CacheError::CacheNotConnected => write!(f, "Cache not connected."),
             CacheError::RedisError(e) => write!(f, "Redis Error: {}", e),
             CacheError::Other(e) => write!(f, "Error: {}", e),
         }

@@ -6,14 +6,13 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 // Database Error
 #[derive(Debug)]
 pub enum DatabaseError {
-    DieselConnectionError(diesel::ConnectionError),
-    DatabaseNotConnected,
+    SurrealDBError(surrealdb::Error),
     Other(String),
 }
 
-impl From<diesel::ConnectionError> for DatabaseError {
-    fn from(error: diesel::ConnectionError) -> Self {
-        DatabaseError::DieselConnectionError(error)
+impl From<surrealdb::Error> for DatabaseError {
+    fn from(error: surrealdb::Error) -> Self {
+        DatabaseError::SurrealDBError(error)
     }
 }
 
@@ -32,8 +31,7 @@ impl From<&str> for DatabaseError {
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DatabaseError::DieselConnectionError(e) => write!(f, "Diesel connection error: {}", e),
-            DatabaseError::DatabaseNotConnected => write!(f, "Database not connected."),
+            DatabaseError::SurrealDBError(e) => write!(f, "SurrealDB error: {}", e),
             DatabaseError::Other(e) => write!(f, "Other error: {}", e),
         }
     }

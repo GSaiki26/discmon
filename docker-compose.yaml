@@ -1,19 +1,21 @@
-
-
 services:
-  # discmon_server:
-  #   container_name: discmon_server
-  #   build: .
-  #   env_file: [app.env]
-  #   depends_on: [discmon_redis]
-  #   links: [discmon_redis]
+  discmon_server:
+    container_name: discmon_server
+    build: .
+    env_file: [.env]
+    depends_on: [discmon_redis, discmon_db]
+    links: [discmon_redis, discmon_db]
 
   discmon_redis:
     container_name: discmon_redis
     image: redis:7.2.5-alpine
-    ports: [6379:6379/tcp]
+    # ports: [6379:6379/tcp]
 
   discmon_db:
     container_name: discmon_db
-    image: mongo:latest
-    ports: [27017:27017]
+    image: surrealdb/surrealdb:latest
+    user: root
+    command: start --auth --user $DATABASE_USER --pass $DATABASE_PASS file://vol
+    # ports: [8000:8000/tcp]
+    volumes:
+      - ./vol:/vol:rw

@@ -1,10 +1,12 @@
 // Libs
 use async_trait::async_trait;
-use redis::aio::MultiplexedConnection;
 
-use crate::errors::CacheResult;
+use crate::{errors::CacheResult, utils::EnvManager};
 
 // Cache Trait.
+/**
+A trait to represent a cache. This trait is used to define the methods that a cache must implement.
+*/
 #[async_trait]
 pub trait Cache {
     type Connection;
@@ -13,11 +15,6 @@ pub trait Cache {
     A method to connect to the cache server.
     */
     async fn connect(&mut self) -> CacheResult<()>;
-
-    /**
-    A method to check if the cache is connected.
-    */
-    fn is_connected(&self) -> bool;
 
     /**
     A method to get the key's value from the cache.
@@ -38,61 +35,69 @@ pub trait Cache {
 }
 
 // Redis Cache
-pub struct RedisCache {
-    client: redis::Client,
-    conn: Option<MultiplexedConnection>,
-}
+pub mod redis_cache {
+    use redis::aio::MultiplexedConnection;
 
-impl RedisCache {
+    use super::*;
+
     /**
-    A method to create a new instance of the RedisCache.
+    A struct to represent the Redis cache.
     */
-    pub fn new() -> CacheResult<Self> {
-        let redis_url = format!(
-            "redis://@{}:{}",
-            std::env::var("REDIS_HOST").unwrap(),
-            std::env::var("REDIS_PORT").unwrap(),
-            // std::env::var("REDIS_USER").unwrap(),
-            // std::env::var("REDIS_PASS").unwrap(),
-        );
-
-        Ok(Self {
-            client: redis::Client::open(redis_url)?,
-            conn: Option::None,
-        })
-    }
-}
-
-#[async_trait]
-impl Cache for RedisCache {
-    type Connection = MultiplexedConnection;
-
-    async fn connect(&mut self) -> CacheResult<()> {
-        self.conn = Some(self.client.get_multiplexed_tokio_connection().await?);
-        Ok(())
+    pub struct RedisCache {
+        client: redis::Client,
+        conn: Option<MultiplexedConnection>,
     }
 
-    fn is_connected(&self) -> bool {
-        self.conn.is_some()
+    impl RedisCache {
+        /**
+        A method to create a new instance of the RedisCache.
+        */
+        pub fn new() -> CacheResult<Self> {
+            let redis_url = format!("redis://@{}", EnvManager::get_var::<String>("CACHE_HOST"));
+            Ok(Self {
+                client: redis::Client::open(redis_url)?,
+                conn: Option::None,
+            })
+        }
     }
 
-    async fn get_key(&self, key: &str) -> CacheResult<Option<String>> {
-        let mut conn = match self.conn.clone() {
-            Some(conn) => conn,
-            None => return Err("No connection to the Redis server.".into()),
-        };
-        Ok(redis::cmd("GET").arg(key).query_async(&mut conn).await?)
-    }
+    #[async_trait]
+    impl Cache for RedisCache {
+        type Connection = MultiplexedConnection;
 
-    async fn insert_key(&self, key: &str, value: &str) -> CacheResult<()> {
-        let mut conn = match self.conn.clone() {
-            Some(conn) => conn,
-            None => return Err("No connection to the Redis server.".into()),
-        };
-        Ok(redis::cmd("SET")
-            .arg(key)
-            .arg(value)
-            .query_async(&mut conn)
-            .await?)
+        async fn connect(&mut self) -> CacheResult<()> {
+            self.conn = Some(self.client.get_multiplexed_tokio_connection().await?);
+            Ok(())
+        }
+
+        async fn get_key(&self, key: &str) -> CacheResult<Option<String>> {
+            let mut conn = match self.conn.clone() {
+                Some(conn) => conn,
+                None => return Err("No connection to the Redis server.".into()),
+            };
+            let key = format!(
+                "{}:{}",
+                EnvManager::get_var::<String>("CACHE_NAMESPACE"),
+                key
+            );
+            Ok(redis::cmd("GET").arg(key).query_async(&mut conn).await?)
+        }
+
+        async fn insert_key(&self, key: &str, value: &str) -> CacheResult<()> {
+            let mut conn = match self.conn.clone() {
+                Some(conn) => conn,
+                None => return Err("No connection to the Redis server.".into()),
+            };
+            let key = format!(
+                "{}:{}",
+                EnvManager::get_var::<String>("CACHE_NAMESPACE"),
+                key
+            );
+            Ok(redis::cmd("SET")
+                .arg(key)
+                .arg(value)
+                .query_async(&mut conn)
+                .await?)
+        }
     }
 }

@@ -1,5 +1,5 @@
-// pub use database::DATABASE_SERVICE;
-pub use pokeapi::POKEAPI_SERVICE;
+pub use database::DATABASE_SERVICE;
+pub use poke_finder::POKEFINDER_SERVICE;
 
-// mod database;
-mod pokeapi;
+mod database;
+mod poke_finder;

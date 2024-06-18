@@ -1,16 +1,20 @@
 // Libs
-use serenity::all::{ChannelId, Context, Message};
+use serenity::all::{ChannelId, Context, GuildId, Message};
 use std::sync::Arc;
-use tracing::{info, Instrument};
+use tracing::info;
 
 use super::poke_spawn::PokeSpawnHandler;
-use crate::{errors::HandlerError, messages::get_dev_error_msg_poke_spawn};
+use crate::{
+    errors::{HandlerError, HandlerResult},
+    messages::get_dev_error_msg_poke_spawn,
+};
 
 // DevCommandsHandler
 #[cfg(feature = "dev_commands")]
 pub struct DevCommandsHandler {
     ctx: Arc<Context>,
     channel_id: ChannelId,
+    guild_id: GuildId,
 }
 
 #[cfg(feature = "dev_commands")]
@@ -22,8 +26,12 @@ impl DevCommandsHandler {
     - `ctx`: An `Arc<Context>` type. The context of the event.
     - `channel_id`: A `ChannelId` type. The channel id of the event.
     */
-    pub fn new(ctx: Arc<Context>, channel_id: ChannelId) -> Self {
-        DevCommandsHandler { ctx, channel_id }
+    pub fn new(ctx: Arc<Context>, channel_id: ChannelId, guild_id: GuildId) -> Self {
+        DevCommandsHandler {
+            ctx,
+            channel_id,
+            guild_id,
+        }
     }
 
     /**
@@ -34,12 +42,12 @@ impl DevCommandsHandler {
     ## Parameters:
     - `msg`: A `Message` type. The message that triggered the event.
     */
-    pub async fn handle(&self, msg: Arc<Message>) -> Result<(), HandlerError> {
-        info!("[DEV HANDLER] Handling dev command...");
+    pub async fn handle(&self, msg: Arc<Message>) -> HandlerResult<()> {
+        info!("Handling dev command...");
         if msg.content.starts_with("!dev spawn_random") {
             let args = msg.content.split_whitespace().collect::<Vec<&str>>();
             if let Err(e) = self.handle_spawn_random_command(args).await {
-                info!("[DEV HANDLER] Error handling the command. {}", e);
+                info!("Error handling the command. {}", e);
                 let error_message = get_dev_error_msg_poke_spawn();
                 self.channel_id
                     .send_message(&self.ctx.http, error_message)
@@ -47,7 +55,7 @@ impl DevCommandsHandler {
             }
         }
 
-        info!("[DEV HANDLER] Dev command handled.");
+        info!("Dev command handled.");
         Ok(())
     }
 
@@ -57,8 +65,8 @@ impl DevCommandsHandler {
     ## Parameters:
     - `message`: A `Message` type. The message that triggered the event.
     */
-    async fn handle_spawn_random_command(&self, args: Vec<&str>) -> Result<(), HandlerError> {
-        info!("[DEV HANDLER] Checking arguments...");
+    async fn handle_spawn_random_command(&self, args: Vec<&str>) -> HandlerResult<()> {
+        info!("Checking arguments...");
         if args.len() != 4 {
             return Err(HandlerError::Other("Invalid arguments.".to_string()));
         };
@@ -73,9 +81,8 @@ impl DevCommandsHandler {
                 }
             };
 
-        info!("[DEV HANDLER] Spawning a random pokemon...");
+        info!("Spawning a random pokemon...");
         self.spawn_random_pokemon(poke_flee_time_secs, poke_shiny_rate)
-            .in_current_span()
             .await?;
 
         Ok(())
@@ -88,14 +95,14 @@ impl DevCommandsHandler {
         &self,
         flee_time_secs: u64,
         shiny_rate: bool,
-    ) -> Result<(), HandlerError> {
+    ) -> HandlerResult<()> {
         // Create the PokeSpawnHandler with custom values.
         let shiny_rate = if shiny_rate { 1 } else { 10000 };
-        let poke_spawn_handler = PokeSpawnHandler::build(self.ctx.clone(), self.channel_id)
-            .with_poke_spawn_rate(1)
-            .with_poke_flee_time_secs(flee_time_secs)
-            .with_poke_shiny_rate(shiny_rate)
-            .build();
+        let mut poke_spawn_handler =
+            PokeSpawnHandler::new(self.ctx.clone(), self.channel_id, self.guild_id);
+        poke_spawn_handler.bot_poke_spawn_rate = 1;
+        poke_spawn_handler.bot_poke_flee_time_secs = flee_time_secs;
+        poke_spawn_handler.bot_poke_shiny_rate = shiny_rate;
 
         // Generate the Send the message to the channel.
         poke_spawn_handler.handle().await?;

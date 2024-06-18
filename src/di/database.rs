@@ -1,9 +1,8 @@
 // Libs
 use async_trait::async_trait;
-use surrealdb
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::errors::{DatabaseError, DatabaseResult};
+use crate::errors::DatabaseResult;
 
 // Database Trait
 /**
@@ -22,18 +21,9 @@ pub trait Database {
     async fn run_migrations(&self) -> DatabaseResult<()>;
 
     /**
-    A method to get a record from the database.
-
-    # Parameters:
-    - `tb`: The name of the table to get the record from.
-    - `id`: The ID of the record to get.
-    */
-    async fn get<T>(&self, tb: &str, id: &str) -> DatabaseResult<Option<T>>
-    where
-        T: DeserializeOwned + Send + Sync + Unpin;
-
-    /**
     A method to get multiple records from the database.
+
+    If the query returns multiple records, it'll return the results from the first query.
 
     # Parameters:
     - `query`: The query to get the records.
@@ -42,6 +32,17 @@ pub trait Database {
     where
         T: DeserializeOwned + Send + Sync + Unpin;
 
+    // /**
+    // A method to get a record from the database.
+
+    // # Parameters:
+    // - `tb`: The name of the table to get the record from.
+    // - `id`: The ID of the record to get.
+    // */
+    // async fn get<T>(&self, tb: &str, id: &Ulid) -> DatabaseResult<Option<T>>
+    // where
+    //     T: DeserializeOwned + Send + Sync + Unpin;
+
     /**
     A method to insert a new record into the database.
 
@@ -49,169 +50,151 @@ pub trait Database {
     - `tb`: The name of the table to insert the record into.
     - `record`: The record to insert into the table.
     */
-    async fn insert<T>(&self, tb: &str, record: T) -> DatabaseResult<()>
+    async fn insert<T>(&self, tb: &str, id: &str, record: T) -> DatabaseResult<Option<T>>
     where
-        T: Serialize + Send + Sync + Unpin;
+        T: DeserializeOwned + Serialize + Send + Sync + Unpin;
 
-    /**
-    A method to update a record in the database.
+    // /**
+    // A method to update a record in the database.
 
-    # Parameters:
-    - `tb`: The name of the table to update the record in.
-    - `id`: The ID of the record to update.
-    - `record`: The record to update the record with.
-    */
-    async fn update<T>(&self, tb: &str, id: &str, record: T) -> DatabaseResult<()>
-    where
-        T: Serialize + Send + Sync + Unpin;
+    // # Parameters:
+    // - `tb`: The name of the table to update the record in.
+    // - `id`: The ID of the record to update.
+    // - `record`: The record to update the record with.
+    // */
+    // async fn update<T>(&self, tb: &str, id: &Id, record: T) -> DatabaseResult<()>
+    // where
+    //     T: Serialize + Send + Sync + Unpin;
 
-    /**
-    A method to delete a record from the database.
+    // /**
+    // A method to delete a record from the database.
 
-    # Parameters:
-    - `tb`: The name of the table to delete the record from.
-    - `id`: The ID of the record to delete.
-    */
-    async fn delete(&self, tb: &str, id: &str) -> DatabaseResult<()>;
+    // # Parameters:
+    // - `tb`: The name of the table to delete the record from.
+    // - `id`: The ID of the record to delete.
+    // */
+    // async fn delete(&self, tb: &str, id: &Id) -> DatabaseResult<()>;
 }
 
-// Postgres
-/**
-A struct to represent a Postgres database.
-*/
-#[derive(Default)]
-pub struct PostgresDatabase {
-    client: Option<diesel::pg::PgConnection>,
-}
+// SurrealDB
+pub mod surreal_db {
+    use surrealdb::{
+        engine::remote::ws::{Client, Ws},
+        opt::auth,
+        sql::{Id, Thing},
+        Surreal,
+    };
 
-#[async_trait]
-impl Database for PostgresDatabase {
-    async fn connect(&mut self) -> DatabaseResult<()> {
-        // Connect to the database.
-        let conn_url = std::env::var("DATABASE_URL").unwrap();
-        let client = diesel::pg::PgConnection::establish(&conn_url)?;
-        c
-        self.client = Some(client);
-        Ok(())
+    use super::*;
+    use crate::utils::EnvManager;
+
+    /**
+    A struct to represent a SurrealDB database.
+    */
+    #[derive(Default)]
+    pub struct SurrealDB {
+        conn: Option<Surreal<Client>>,
     }
 
-    async fn run_migrations(&self) -> DatabaseResult<()> {
-        // Run the migrations.
-        Ok(())
-    }
+    #[async_trait]
+    impl Database for SurrealDB {
+        async fn connect(&mut self) -> DatabaseResult<()> {
+            // Connect to the database.
+            let conn_url: String = EnvManager::get_var("DATABASE_HOST");
+            let client = surrealdb::Surreal::new::<Ws>(&conn_url).await?;
 
-    async fn query<T, U>(&self, tb: &str, filter: U) -> DatabaseResult<Vec<T>>
-    where
-        T: DeserializeOwned + Send + Sync + Unpin,
-        U: Send + Sync + Unpin,
-    {
-        // Get the client.
-        let db_name = std::env::var("DATABASE_NAME").unwrap();
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(DatabaseError::DatabaseNotConnected)?;
+            client
+                .signin(auth::Root {
+                    username: &EnvManager::get_var::<String>("DATABASE_USER"),
+                    password: &EnvManager::get_var::<String>("DATABASE_PASS"),
+                })
+                .await?;
 
-        // Get the records.
-        let result = client
-            .database(&db_name)
-            .collection::<T>(tb)
-            .find(filter, None)
-            .await?
-            .collect::<Vec<T>>()
-            .await;
+            client
+                .use_ns(&EnvManager::get_var::<String>("DATABASE_NAMESPACE"))
+                .use_db(&EnvManager::get_var::<String>("DATABASE_NAME"))
+                .await?;
 
-        Ok(result)
-    }
+            self.conn = Some(client);
+            Ok(())
+        }
 
-    async fn get<T>(&self, tb: &str, id: &str) -> DatabaseResult<Option<T>>
-    where
-        T: DeserializeOwned + Send + Sync + Unpin,
-    {
-        // Get the client.
-        let db_name = std::env::var("DATABASE_NAME").unwrap();
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(DatabaseError::DatabaseNotConnected)?;
+        async fn run_migrations(&self) -> DatabaseResult<()> {
+            let conn = self.conn.clone().unwrap();
 
-        // Get the record.
-        let query = doc! {
-            "_id": id.to_string()
-        };
-        let result = client
-            .database(&db_name)
-            .collection::<T>(tb)
-            .find_one(query, None)
-            .await?;
+            conn.query("DEFINE TABLE trainer SCHEMAFULL").await?;
+            conn.query("DEFINE FIELD discord_id ON TABLE trainer TYPE string")
+                .await?;
+            conn.query("DEFINE FIELD discord_guild_id ON TABLE trainer TYPE string")
+                .await?;
+            conn.query("DEFINE FIELD created_at ON TABLE trainer TYPE datetime")
+                .await?;
+            conn.query("DEFINE FIELD updated_at ON TABLE trainer TYPE datetime")
+                .await?;
 
-        Ok(result)
-    }
+            conn.query("DEFINE TABLE pokemon SCHEMAFULL").await?;
+            conn.query("DEFINE FIELD trainer_id ON TABLE pokemon TYPE record")
+                .await?;
+            conn.query("DEFINE FIELD poke_id ON TABLE pokemon TYPE number")
+                .await?;
+            conn.query("DEFINE FIELD is_shiny ON TABLE pokemon TYPE bool")
+                .await?;
+            conn.query("DEFINE FIELD created_at ON TABLE pokemon TYPE datetime")
+                .await?;
+            conn.query("DEFINE FIELD updated_at ON TABLE pokemon TYPE datetime")
+                .await?;
 
-    async fn insert<T>(&self, tb: &str, record: T) -> DatabaseResult<()>
-    where
-        T: Serialize + Send + Sync + Unpin,
-    {
-        // Get the client.
-        let db_name = std::env::var("DATABASE_NAME").unwrap();
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(DatabaseError::DatabaseNotConnected)?;
+            Ok(())
+        }
 
-        // Insert the record.
-        client
-            .database(&db_name)
-            .collection(tb)
-            .insert_one(record, None)
-            .await?;
+        async fn query<T>(&self, query: &str) -> DatabaseResult<Vec<T>>
+        where
+            T: DeserializeOwned + Send + Sync + Unpin,
+        {
+            let mut response = self.conn.as_ref().unwrap().query(query).await?;
+            Ok(response.take(0)?)
+        }
 
-        Ok(())
-    }
+        // async fn get<T>(&self, tb: &str, id: &Ulid) -> DatabaseResult<Option<T>>
+        // where
+        //     T: DeserializeOwned + Send + Sync + Unpin,
+        // {
+        //     // Get the record.
+        //     let locator = (tb, id.to_string());
+        //     let conn = self.conn.as_ref().unwrap();
+        //     Ok(conn.select(locator).await?)
+        // }
 
-    async fn update<T>(&self, tb: &str, id: &str, record: T) -> DatabaseResult<()>
-    where
-        T: Serialize + Send + Sync + Unpin,
-    {
-        // Get the client.
-        let db_name = std::env::var("DATABASE_NAME").unwrap();
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(DatabaseError::DatabaseNotConnected)?;
+        async fn insert<T>(&self, tb: &str, id: &str, record: T) -> DatabaseResult<Option<T>>
+        where
+            T: DeserializeOwned + Serialize + Send + Sync + Unpin,
+        {
+            // Insert the record.
+            let locator = Thing {
+                tb: tb.to_string(),
+                id: Id::from(id.to_string()),
+            };
+            let conn = self.conn.as_ref().unwrap();
+            Ok(conn.insert::<Option<T>>(locator).content(record).await?)
+        }
 
-        // Update the record.
-        let record = bson::to_document(&record).unwrap();
-        client
-            .database(&db_name)
-            .collection::<T>(tb)
-            .update_one(
-                doc! {
-                    "_id": id.to_string()
-                },
-                UpdateModifications::Document(record),
-                None,
-            )
-            .await?;
+        // async fn update<T>(&self, tb: &str, id: &Ulid, record: T) -> DatabaseResult<()>
+        // where
+        //     T: Serialize + Send + Sync + Unpin,
+        // {
+        //     // Update the record.
+        //     let locator = (tb, id.to_string());
+        //     let conn = self.conn.as_ref().unwrap();
+        //     conn.update::<Option<()>>(locator).content(record).await?;
+        //     Ok(())
+        // }
 
-        Ok(())
-    }
-
-    async fn delete(&self, tb: &str, id: &str) -> DatabaseResult<()> {
-        // Get the client.
-        let db_name = std::env::var("DATABASE_NAME").unwrap();
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(DatabaseError::DatabaseNotConnected)?;
-
-        // Delete the record.
-        client
-            .database(&db_name)
-            .collection::<Document>(tb)
-            .delete_one(doc! { "_id": id.to_string() }, None)
-            .await?;
-
-        Ok(())
+        // async fn delete(&self, tb: &str, id: &Ulid) -> DatabaseResult<()> {
+        //     // Delete the record.
+        //     let locator = (tb, id.to_string());
+        //     let conn = self.conn.as_ref().unwrap();
+        //     conn.delete::<Option<()>>(locator).await?;
+        //     Ok(())
+        // }
     }
 }

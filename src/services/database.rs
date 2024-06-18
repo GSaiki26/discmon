@@ -1,17 +1,16 @@
 // Libs
 use once_cell::sync::Lazy;
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{debug, info};
 
-use crate::{
-    di::database::{Database, MongoDB},
-    errors::DatabaseResult,
-};
+use crate::di::{Database, SurrealDB};
+use crate::errors::DatabaseResult;
 
 // Data
-pub static DATABASE_SERVICE: Lazy<Arc<DatabaseService<MongoDB>>> = Lazy::new(|| {
-    let db_src = DatabaseService::new(RwLock::new(MongoDB::default()));
+pub static DATABASE_SERVICE: Lazy<Arc<DatabaseService<SurrealDB>>> = Lazy::new(|| {
+    let db_src = DatabaseService::new(RwLock::new(SurrealDB::default()));
     Arc::new(db_src)
 });
 
@@ -42,46 +41,57 @@ where
     */
     pub async fn connect(&self) -> DatabaseResult<()> {
         // Connect to the database.
-        info!("[DatabaseService] Connecting to the database...");
+        info!("Connecting to the database...");
         self.database.write().await.connect().await?;
-        info!("[DatabaseService] Connected to the database.");
+        info!("Connected to the database.");
         Ok(())
     }
 
     /**
     A method to run the database's migrations.
     */
-    pub async fn migrate(&self) -> DatabaseResult<()> {
+    pub async fn run_migrations(&self) -> DatabaseResult<()> {
         // Run the database migrations.
-        info!("[DatabaseService] Running database migrations...");
+        info!("Running database migrations...");
         self.database.read().await.run_migrations().await?;
-        info!("[DatabaseService] Database migrations complete.");
+        info!("Database migrations complete.");
         Ok(())
     }
 
     /**
-    A method to get a record from the database.
+    A method to run a database query.
 
     ## Parameters:
-    - `tb`: The table to get the record from.
-    - `id`: The ID of the record to get.
+    - `query`: The query to run.
     */
-    pub async fn get_record<T>(&self, tb: &str, id: &str) -> DatabaseResult<Option<T>>
+    pub async fn run_query<T>(&self, query: &str) -> DatabaseResult<Vec<T>>
     where
-        T: serde::de::DeserializeOwned + Send + Sync + Unpin,
+        T: DeserializeOwned + Send + Sync + Unpin,
     {
-        // Get the record from the database.
-        info!(
-            "[DatabaseService] Getting record from table '{}' with ID '{}'",
-            tb, id
-        );
-        let record = self.database.read().await.get(tb, id).await?;
-        info!(
-            "[DatabaseService] Got record from table '{}' with ID '{}'",
-            tb, id
-        );
-        Ok(record)
+        // Run the query on the database.
+        debug!("Running query: '{}'", query);
+        let result = self.database.read().await.query(query).await?;
+        info!("Query ran successfully.");
+        Ok(result)
     }
+
+    // /**
+    // A method to get a record from the database.
+
+    // ## Parameters:
+    // - `tb`: The table to get the record from.
+    // - `id`: The ID of the record to get.
+    // */
+    // pub async fn get_record<T>(&self, tb: &str, id: &Ulid) -> DatabaseResult<Option<T>>
+    // where
+    //     T: DeserializeOwned + Send + Sync + Unpin,
+    // {
+    //     // Get the record from the database.
+    //     info!("Getting record from table '{}' with ID '{}'", tb, id);
+    //     let record = self.database.read().await.get(tb, id).await?;
+    //     info!("Got record from table '{}' with ID '{}'", tb, id);
+    //     Ok(record)
+    // }
 
     /**
     A method to insert a new record into the database.
@@ -90,60 +100,48 @@ where
     - `tb`: The table to insert the record into.
     - `record`: The record to insert into the table.
     */
-    pub async fn insert_record<T>(&self, tb: &str, record: T) -> DatabaseResult<()>
+    pub async fn insert_record<T>(&self, tb: &str, id: &str, record: T) -> DatabaseResult<Option<T>>
     where
-        T: serde::ser::Serialize + Send + Sync + Unpin,
+        T: DeserializeOwned + std::fmt::Debug + Serialize + Send + Sync + Unpin,
     {
         // Insert the record into the database.
-        info!("[DatabaseService] Inserting record into table '{}'", tb);
-        self.database.read().await.insert(tb, record).await?;
-        info!("[DatabaseService] Inserted record into table '{}'", tb);
-        Ok(())
+        info!("Inserting record #{}:{}...", tb, id);
+        let result = self.database.read().await.insert(tb, id, record).await?;
+        info!("Inserted record #{}:{}.", tb, id);
+        Ok(result)
     }
 
-    /**
-    A method to update a record in the database.
+    // /**
+    // A method to update a record in the database.
 
-    ## Parameters:
-    - `tb`: The table to update the record in.
-    - `id`: The ID of the record to update.
-    - `record`: The record to update the record with.
-    */
-    pub async fn update_record<T>(&self, tb: &str, id: &str, record: T) -> DatabaseResult<()>
-    where
-        T: serde::ser::Serialize + Send + Sync + Unpin,
-    {
-        // Update the record in the database.
-        info!(
-            "[DatabaseService] Updating record in table '{}' with ID '{}'",
-            tb, id
-        );
-        self.database.read().await.update(tb, id, record).await?;
-        info!(
-            "[DatabaseService] Updated record in table '{}' with ID '{}'",
-            tb, id
-        );
-        Ok(())
-    }
+    // ## Parameters:
+    // - `tb`: The table to update the record in.
+    // - `id`: The ID of the record to update.
+    // - `record`: The record to update the record with.
+    // */
+    // pub async fn update_record<T>(&self, tb: &str, id: &Ulid, record: T) -> DatabaseResult<()>
+    // where
+    //     T: Serialize + Send + Sync + Unpin,
+    // {
+    //     // Update the record in the database.
+    //     info!("Updating record in table '{}' with ID '{}'", tb, id);
+    //     self.database.read().await.update(tb, id, record).await?;
+    //     info!("Updated record in table '{}' with ID '{}'", tb, id);
+    //     Ok(())
+    // }
 
-    /**
-    A method to delete a record from the database.
+    // /**
+    // A method to delete a record from the database.
 
-    ## Parameters:
-    - `tb`: The table to delete the record from.
-    - `id`: The ID of the record to delete.
-    */
-    pub async fn delete_record(&self, tb: &str, id: &str) -> DatabaseResult<()> {
-        // Delete the record from the database.
-        info!(
-            "[DatabaseService] Deleting record from table '{}' with ID '{}'",
-            tb, id
-        );
-        self.database.read().await.delete(tb, id).await?;
-        info!(
-            "[DatabaseService] Deleted record from table '{}' with ID '{}'",
-            tb, id
-        );
-        Ok(())
-    }
+    // ## Parameters:
+    // - `tb`: The table to delete the record from.
+    // - `id`: The ID of the record to delete.
+    // */
+    // pub async fn delete_record(&self, tb: &str, id: &Ulid) -> DatabaseResult<()> {
+    //     // Delete the record from the database.
+    //     info!("Deleting record from table '{}' with ID '{}'", tb, id);
+    //     self.database.read().await.delete(tb, id).await?;
+    //     info!("Deleted record from table '{}' with ID '{}'", tb, id);
+    //     Ok(())
+    // }
 }
