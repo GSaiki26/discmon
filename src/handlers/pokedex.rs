@@ -1,8 +1,8 @@
 // Libs
 use serenity::{
     all::{
-        parse_emoji, CommandInteraction, Context, CreateButton, CreateEmbed, CreateEmbedAuthor,
-        CreateInteractionResponse, CreateInteractionResponseMessage, Message,
+        parse_emoji, CommandInteraction, Context, CreateButton, CreateEmbed,
+        CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, Message, User,
     },
     futures::StreamExt,
 };
@@ -12,7 +12,7 @@ use tracing::{debug, info};
 
 use crate::{
     errors::HandlerResult,
-    messages::{get_msg_pokedex_ack, get_msg_pokedex_content, get_msg_pokedex_empty},
+    messages::{get_embed_pokedex_content, get_msg_pokedex_ack, get_msg_pokedex_empty},
     models::{DBPoke, DBTrainer},
     serializations::cache::CachedPokemon,
     services::POKEFINDER_SERVICE,
@@ -55,7 +55,7 @@ If the requested page doesn't exist, an empty array'll be returned.
 fn get_pokedex_page(
     total_pages: impl Into<u16>,
     current_page: impl Into<u16>,
-    pokelist: &Vec<DBPoke>,
+    pokelist: &[DBPoke],
 ) -> Vec<DBPoke> {
     // Convert the parameters into the correct types.
     let total_pages: u16 = total_pages.into();
@@ -101,7 +101,7 @@ The poke_cache'll be updated if the pokémon list is not found.
 
 */
 async fn describe_trainer_pokes(
-    trainer_pokes: &Vec<DBPoke>,
+    trainer_pokes: &[DBPoke],
     poke_cache: &mut Vec<CachedPokemon>,
 ) -> HandlerResult<Vec<String>> {
     let pokefinder_svc = POKEFINDER_SERVICE.clone();
@@ -151,6 +151,34 @@ async fn describe_trainer_pokes(
     Ok(descriptions)
 }
 
+/**
+A method to mount the pokemon's embed message.
+*/
+async fn mount_pokedex_content_embed(
+    user: &User,
+    total_pokes: u16,
+    total_pages: u16,
+    pokes_per_page: u16,
+    trainer_pokes: &[DBPoke],
+    trainer_species: &[DBPoke],
+    poke_cache: &mut Vec<CachedPokemon>,
+) -> HandlerResult<CreateEmbed> {
+    info!("Mounting the pokedex message...");
+    let pokedex_page_pokes = get_pokedex_page(total_pages, 1_u16, trainer_pokes);
+    let pokedex_page = describe_trainer_pokes(&pokedex_page_pokes, poke_cache).await?;
+    let embed = get_embed_pokedex_content(
+        user,
+        trainer_pokes.len() as u16,
+        &format!("{}/{}", trainer_species.len(), total_pokes),
+        &format!("1/{}", total_pages),
+        pokes_per_page,
+        &pokedex_page.join("\n\n"),
+    );
+
+    info!("The pokedex message was mounted.");
+    Ok(embed)
+}
+
 // Pokedex Handler
 /**
 A struct to handle the pokedex of the bot.
@@ -184,29 +212,28 @@ impl PokedexHandler {
         let total_pages = trainer_species.len() as u16 / pokes_per_page + 1;
 
         // Check if the trainer has any pokemons.
-        if trainer_pokes.len() == 0 {
+        if trainer_pokes.is_empty() {
             return self.send_empty_pokedex_msg().await;
         }
-
-        // Get the total number of pages and pokemons per page.
 
         // Define the pokedex pages and cache.
         let mut poke_cache = Vec::new();
 
         // Mount the pokedex message.
-        info!("Mounting the pokedex message...");
-        let pokedex_page_pokes = get_pokedex_page(total_pages, 1_u16, &trainer_pokes);
-        let pokedex_page = describe_trainer_pokes(&pokedex_page_pokes, &mut poke_cache).await?;
-        let pokedex_msg_content = get_msg_pokedex_content(
+        let embed = mount_pokedex_content_embed(
             &self.command.user,
-            trainer_pokes.len() as u16,
-            trainer_species.len() as u16,
             total_pokes,
-            1_u16,
             total_pages,
             pokes_per_page,
-            &pokedex_page.join("\n\n"),
-        );
+            &trainer_pokes,
+            &trainer_species,
+            &mut poke_cache,
+        )
+        .await?;
+        let pokedex_msg_content = CreateMessage::new()
+            .add_embed(embed)
+            .button(CreateButton::new("pokedex_previous").label("Previous"))
+            .button(CreateButton::new("pokedex_next").label("Next"));
 
         // Send the pokedex message.
         info!("Sending the pokedex message...");
@@ -220,7 +247,6 @@ impl PokedexHandler {
         self.handle_pokedex_interactions(
             pokedex_msg,
             total_pages,
-            pokes_per_page,
             total_pokes,
             trainer_pokes,
             trainer_species,
@@ -261,17 +287,24 @@ impl PokedexHandler {
             .send_message(&self.ctx, get_msg_pokedex_empty(&self.command.user.name))
             .await?;
 
-        return Ok(());
+        Ok(())
     }
 
     /**
     A method to handle the pokedex's interactions.
+
+    ## Parameters:
+    - `pokedex_msg`: The pokedex message.
+    - `total_pages`: The total number of pages.
+    - `total_pokes`: The total number of pokemons.
+    - `trainer_pokes`: The pokemons owned by the trainer.
+    - `trainer_species`: The pokemons species owned by the trainer.
+    - `poke_cache`: The cache of pokemons.
     */
     pub async fn handle_pokedex_interactions(
         &self,
         pokedex_msg: Message,
         total_pages: u16,
-        total_pokes_per_page: u16,
         total_pokes: u16,
         trainer_pokes: Vec<DBPoke>,
         trainer_species: Vec<DBPoke>,
@@ -280,6 +313,7 @@ impl PokedexHandler {
         info!("Waiting for pokedex interactions...");
 
         let mut current_page = 1;
+        let pokes_per_page = EnvManager::get_var("BOT_POKEDEX_POKES_PER_PAGE");
         let mut interactions = pokedex_msg
             .await_component_interaction(&self.ctx.shard)
             .timeout(Duration::from_secs(EnvManager::get_var(
@@ -315,40 +349,27 @@ impl PokedexHandler {
             }
 
             // Update the pokedex message.
-            let pokedex_page_pokes = get_pokedex_page(total_pages, current_page, &trainer_pokes);
-            let pokedex_page = describe_trainer_pokes(&pokedex_page_pokes, &mut poke_cache).await?;
-
-            let title = format!("{}'s Pokédex 📕", self.command.user.name);
-            let author = CreateEmbedAuthor::from(self.command.user.clone());
-            let embed = CreateEmbed::new()
-                .title(title)
-                .author(author)
-                .field(
-                    "Total caught pokémons",
-                    trainer_pokes.len().to_string(),
-                    true,
-                )
-                .field(
-                    "Registered pokémons",
-                    format!("{}/{}", trainer_species.len(), total_pokes),
-                    true,
-                )
-                .field(
-                    format!("Current page ({} per page)", total_pokes_per_page),
-                    format!("{}/{}", current_page, total_pages),
-                    true,
-                )
-                .description(pokedex_page.join("\n\n"));
-
-            let pokedex_previous = CreateButton::new("pokedex_previous").label("Previous");
-            let pokedex_next = CreateButton::new("pokedex_next").label("Next");
-            let message = CreateInteractionResponseMessage::new()
+            let embed = mount_pokedex_content_embed(
+                &self.command.user,
+                total_pokes,
+                total_pages,
+                pokes_per_page,
+                &trainer_pokes,
+                &trainer_species,
+                &mut poke_cache,
+            )
+            .await?;
+            let pokedex_msg_content = CreateInteractionResponseMessage::new()
                 .add_embed(embed)
-                .button(pokedex_previous)
-                .button(pokedex_next);
+                .button(CreateButton::new("pokedex_previous").label("Previous"))
+                .button(CreateButton::new("pokedex_next").label("Next"));
 
+            // Send the pokedex message.
             interaction
-                .create_response(&self.ctx, CreateInteractionResponse::UpdateMessage(message))
+                .create_response(
+                    &self.ctx,
+                    CreateInteractionResponse::UpdateMessage(pokedex_msg_content),
+                )
                 .await?;
         }
 

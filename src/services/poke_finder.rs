@@ -99,7 +99,7 @@ where
         let cached_poke = self.create_cached_poke(identifier).await?;
 
         info!("Inserting the pokemon in the cache...");
-        for key in vec![cached_poke.id.to_string(), cached_poke.name.to_lowercase()] {
+        for key in [cached_poke.id.to_string(), cached_poke.name.to_lowercase()] {
             cache
                 .insert_key(&key, &serde_json::to_string(&cached_poke).unwrap())
                 .await?;

@@ -63,14 +63,11 @@ impl serenity::all::EventHandler for EventHandler {
         let _guard = span.enter();
 
         info!("A user started a new command.");
-        match command.data.name.as_str() {
-            "pokedex" => {
-                let pokedex_handler = PokedexHandler::new(ctx, command);
-                if let Err(e) = pokedex_handler.handle().in_current_span().await {
-                    error!("Error handling pokedex command: {:?}", e);
-                }
+        if command.data.name.as_str() == "pokedex" {
+            let pokedex_handler = PokedexHandler::new(ctx, command);
+            if let Err(e) = pokedex_handler.handle().in_current_span().await {
+                error!("Error handling pokedex command: {:?}", e);
             }
-            _ => {}
         };
     }
 

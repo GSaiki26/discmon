@@ -176,7 +176,7 @@ impl PokeSpawnHandler {
         is_shiny: bool,
         cached_poke: &CachedPokemon,
     ) -> HandlerResult<Message> {
-        let message = get_msg_wild_pokemon_appeared(is_shiny, &cached_poke);
+        let message = get_msg_wild_pokemon_appeared(is_shiny, cached_poke);
         let message = self
             .channel_id
             .send_message(&self.ctx.http, message)
@@ -200,7 +200,7 @@ impl PokeSpawnHandler {
     pub async fn start_capture(&self, poke_msg: &Message) -> HandlerResult<Option<User>> {
         let start_instant = std::time::Instant::now();
 
-        while start_instant.elapsed().as_secs() < self.bot_poke_flee_time_secs as u64 {
+        while start_instant.elapsed().as_secs() < self.bot_poke_flee_time_secs {
             // Check the reactions of the message.
             info!("Checking the reactions of the message...");
             let users_that_reacted = &poke_msg

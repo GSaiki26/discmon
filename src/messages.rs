@@ -1,7 +1,6 @@
 // Libs
 use serenity::all::{
-    CreateButton, CreateEmbed, CreateEmbedAuthor, CreateInteractionResponseMessage, CreateMessage,
-    Mention, User,
+    CreateEmbed, CreateEmbedAuthor, CreateInteractionResponseMessage, CreateMessage, Mention, User,
 };
 
 use crate::serializations::cache::CachedPokemon;
@@ -93,40 +92,34 @@ pub fn get_msg_pokedex_empty(username: &str) -> CreateMessage {
 
 /**
 A method to create the message for the pokedex content.
+
+## Parameters:
+- `user`: The user that called the command.
+- `total_caught`: The total number of pokemons caught by the user.
+- `registered_pokes`: The total number of pokemons registered by the user. it must be in the "{}/{}" format.
+- `page_index`: The current page index. it must be in the "{}/{}" format.
+- `pokes_per_page`: The total number of pokemons per page.
+- `pokedex_description`: The pokedex description in markdown.
 */
-pub fn get_msg_pokedex_content(
+pub fn get_embed_pokedex_content(
     user: &User,
     total_caught: u16,
-    total_species_caught: u16,
-    total_pokes: u16,
-    current_page: u16,
-    total_pages: u16,
-    total_pokes_per_page: u16,
+    registered_pokes: &str,
+    page_index: &str,
+    pokes_per_page: u16,
     pokedex_description: &str,
-) -> CreateMessage {
-    let embed = CreateEmbed::new()
+) -> CreateEmbed {
+    CreateEmbed::new()
         .title(format!("{}'s Pokédex 📕", user.name))
         .author(CreateEmbedAuthor::from(user.clone()))
         .field("Total caught pokémons", total_caught.to_string(), true)
+        .field("Registered pokémons", registered_pokes, true)
         .field(
-            "Registered pokémons",
-            format!("{}/{}", total_species_caught, total_pokes),
+            format!("Current page ({} per page)", pokes_per_page),
+            page_index,
             true,
         )
-        .field(
-            format!("Current page ({} per page)", total_pokes_per_page),
-            format!("{}/{}", current_page, &total_pages),
-            true,
-        )
-        .description(pokedex_description);
-
-    let pokedex_previous = CreateButton::new("pokedex_previous").label("Previous");
-    let pokedex_next = CreateButton::new("pokedex_next").label("Next");
-
-    CreateMessage::new()
-        .add_embed(embed)
-        .button(pokedex_previous)
-        .button(pokedex_next)
+        .description(pokedex_description)
 }
 
 /**

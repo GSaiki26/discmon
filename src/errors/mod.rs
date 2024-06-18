@@ -1,6 +1,6 @@
 pub use cache_error::{CacheError, CacheResult};
 pub use database_error::DatabaseResult;
-pub use handler_error::{HandlerError, HandlerResult};
+pub use handler_error::HandlerResult;
 pub use httpclient_error::{HTTPClientError, HTTPClientResult};
 pub use pokefinder_error::{PokeFinderError, PokeFinderResult};
 

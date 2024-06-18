@@ -37,7 +37,7 @@ impl DBPoke {
             },
             trainer_id: trainer_id.clone(),
             is_shiny,
-            poke_id: poke_id.clone(),
+            poke_id: *poke_id,
             created_at: Datetime::default(),
             updated_at: Datetime::default(),
         }
