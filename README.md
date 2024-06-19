@@ -1,4 +1,8 @@
 # Discmon
+[![Audit](https://github.com/GSaiki26/discmon/actions/workflows/audit.yaml/badge.svg)](https://github.com/GSaiki26/discmon/actions/workflows/audit.yaml) 
+[![Docker build](https://github.com/GSaiki26/discmon/actions/workflows/docker_build.yaml/badge.svg)](https://github.com/GSaiki26/discmon/actions/workflows/docker_build.yaml) 
+[![Linter](https://github.com/GSaiki26/discmon/actions/workflows/linter.yaml/badge.svg)](https://github.com/GSaiki26/discmon/actions/workflows/linter.yaml)
+
 The discmon is a discord bot written in Rust.
 It's main purpose its spawn Pokémons in the chat and let the users catch them.
 
@@ -15,7 +19,7 @@ The bot can be configured by setting the following environment variables: (A `.e
 
 ### BOT Configuration
 - `BOT_POKE_FLEE_TIME_SECS`: The time in seconds that the Pokémon will stay in the chat before fleeing. (Default - 60);
-- `BOT_POKE_SPAWN_RATE`: The chance of a Pokémon spawning in the chat. (Default - 100);
+- `BOT_POKE_SPAWN_RATE`: The chance of a Pokémon spawning in the chat. (Default - 20);
 - `BOT_POKE_SHINY_RATE`: The chance of a Pokémon being shiny. (Default - 4096);
 - `BOT_POKEBALL_EMOJI_ID`: The emoji id of the pokéball emoji. (Default - <:pokeball:1251387543090626623>);
 - `BOT_POKEDEX_POKES_PER_PAGE`: The amount of pokémons that will be displayed per page in the pokedex. (Default - 6);

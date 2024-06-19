@@ -42,22 +42,6 @@ impl DBPoke {
             updated_at: Datetime::default(),
         }
     }
-
-    /**
-    A method to find a list of all pokémons owned by a trainer.
-
-    ## Parameters:
-    - `trainer_id`: The ID of the trainer.
-    */
-    pub async fn find_by_trainer_id(trainer_id: &Thing) -> DatabaseResult<Vec<Self>> {
-        info!("Finding all pokemons owned by the {}...", trainer_id);
-        let db_svc = DATABASE_SERVICE.clone();
-        let query = format!("SELECT * FROM pokemon WHERE trainer_id = '{}'", trainer_id);
-        let pokes = db_svc.run_query(&query).await?;
-
-        info!("{} Pokemons found successfully.", pokes.len());
-        Ok(pokes)
-    }
 }
 
 #[async_trait::async_trait]
